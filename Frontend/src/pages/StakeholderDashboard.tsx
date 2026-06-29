@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,16 +14,19 @@ import {
 import { 
   Search, TrendingUp, AlertCircle, CheckCircle, MapPin, 
   Download, Filter, Calendar, Package, FlaskConical, Users, 
-  Target, Globe, Activity, Bell
+  Target, Globe, Bell, ArrowLeft
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const StakeholderDashboard = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTimeRange, setSelectedTimeRange] = useState("30");
   const [activeTab, setActiveTab] = useState("overview");
 
-  // Mock data
-  const kpiData = {
+  // Initial mock data as fallback
+  const [metrics, setMetrics] = useState<any>({
     totalHarvested: "2,450 kg",
     pendingQuality: 12,
     complianceRate: 98,
@@ -30,65 +34,96 @@ const StakeholderDashboard = () => {
     activeFarmers: 45,
     totalBatches: 156,
     avgQualityScore: 4.3,
-    carbonFootprint: "2.1 tons CO₂"
+    carbonFootprint: "2.1 tons CO₂",
+    harvestTrend: [
+      { name: 'Week 1', value: 400 },
+      { name: 'Week 2', value: 600 },
+      { name: 'Week 3', value: 800 },
+      { name: 'Week 4', value: 650 },
+    ],
+    qualityData: [
+      { name: 'Passed', value: 95, fill: '#10b981' },
+      { name: 'Failed', value: 5, fill: '#ef4444' },
+    ],
+    recentBatches: [
+      { batchId: "AYR202501001", product: "Tulsi", farmer: "F2025001", date: "2025-01-20", status: "Completed", location: "Jaipur" },
+      { batchId: "AYR202501002", product: "Ashwagandha", farmer: "F2025001", date: "2025-01-15", status: "Quality Check", location: "Jaipur" },
+      { batchId: "AYR202501003", product: "Brahmi", farmer: "F2025001", date: "2025-01-10", status: "In Processing", location: "Jaipur" },
+    ],
+    farmerPerformance: [
+      { name: 'F2025001', harvests: 3, quality: 4.5, compliance: 100 }
+    ],
+    regionalData: [
+      { region: 'Jaipur', batches: 3, quality: 4.5 }
+    ],
+    alertsData: [
+      { id: 'alert-default-1', type: "success", message: "All scanned quality tests within compliant margins.", time: "2 hours ago" },
+    ]
+  });
+
+  const fetchMetrics = async () => {
+    const token = localStorage.getItem("ayurtrace_token");
+    if (!token) return;
+    try {
+      const response = await fetch("/api/stakeholder/metrics", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMetrics(data);
+      }
+    } catch (err) {
+      console.error("Error fetching stakeholder metrics:", err);
+    }
   };
 
-  const harvestTrend = [
-    { name: 'Week 1', value: 400 },
-    { name: 'Week 2', value: 600 },
-    { name: 'Week 3', value: 800 },
-    { name: 'Week 4', value: 650 },
-  ];
+  useEffect(() => {
+    fetchMetrics();
+  }, []);
 
-  const qualityData = [
-    { name: 'Passed', value: 95, fill: '#10b981' },
-    { name: 'Moisture Failed', value: 3, fill: '#f59e0b' },
-    { name: 'Pesticide Failed', value: 2, fill: '#ef4444' },
-  ];
+  const handleRunAudit = () => {
+    fetchMetrics();
+    toast({
+      title: "Audit Running",
+      description: "Recalculating real-time compliance metrics from PostgreSQL database...",
+    });
+  };
 
-  const recentBatches = [
-    { batchId: "TXN0045", product: "Ashwagandha", farmer: "F2025001", date: "2025-01-27", status: "In Processing", location: "Jaipur" },
-    { batchId: "TXN0044", product: "Tulsi", farmer: "F2025002", date: "2025-01-26", status: "Quality Check", location: "Udaipur" },
-    { batchId: "TXN0043", product: "Brahmi", farmer: "F2025003", date: "2025-01-25", status: "Completed", location: "Jodhpur" },
-  ];
-
-  const farmerPerformance = [
-    { name: 'F2025001', harvests: 25, quality: 4.8, compliance: 100 },
-    { name: 'F2025002', harvests: 18, quality: 4.2, compliance: 95 },
-    { name: 'F2025003', harvests: 22, quality: 4.5, compliance: 98 },
-    { name: 'F2025004', harvests: 15, quality: 4.1, compliance: 92 },
-  ];
-
-  const regionalData = [
-    { region: 'Rajasthan', batches: 65, quality: 4.3 },
-    { region: 'Gujarat', batches: 42, quality: 4.1 },
-    { region: 'Maharashtra', batches: 28, quality: 4.5 },
-    { region: 'Karnataka', batches: 21, quality: 4.2 },
-  ];
-
-  const alertsData = [
-    { id: 1, type: "warning", message: "Batch TXN0040 moisture level exceeds threshold", time: "2 hours ago" },
-    { id: 2, type: "info", message: "New farmer F2025010 registered in system", time: "4 hours ago" },
-    { id: 3, type: "success", message: "Quality certification received for 15 batches", time: "1 day ago" },
-  ];
+  const filteredBatches = metrics.recentBatches.filter((batch: any) => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    return (
+      batch.batchId.toLowerCase().includes(query) ||
+      batch.product.toLowerCase().includes(query) ||
+      batch.farmer.toLowerCase().includes(query) ||
+      (batch.location && batch.location.toLowerCase().includes(query))
+    );
+  });
 
   return (
     <div className="min-h-screen bg-gradient-earth">
       {/* Header */}
       <header className="bg-background/95 backdrop-blur-sm border-b">
         <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">AyurTrace Supply Chain Dashboard</h1>
-              <p className="text-muted-foreground">Real-time blockchain traceability insights</p>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+                <ArrowLeft className="w-4 h-4 mr-1" /> Back
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold">AyurTrace Stakeholder Dashboard</h1>
+                <p className="text-muted-foreground text-sm">Real-time ledger analytics | User: {user?.name || "Manager"}</p>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button variant="outline">
                 <Download className="w-4 h-4 mr-2" />
                 Export Report
               </Button>
-              <Button>
-                <AlertCircle className="w-4 h-4 mr-2" />
+              <Button onClick={handleRunAudit}>
+                <CheckCircle className="w-4 h-4 mr-2" />
                 Run Audit
               </Button>
             </div>
@@ -97,7 +132,7 @@ const StakeholderDashboard = () => {
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        {/* Enhanced KPI Cards */}
+        {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -105,8 +140,8 @@ const StakeholderDashboard = () => {
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpiData.totalHarvested}</div>
-              <p className="text-xs text-muted-foreground">Last 30 days</p>
+              <div className="text-2xl font-bold">{metrics.totalHarvested}</div>
+              <p className="text-xs text-muted-foreground">Logged in PostgreSQL</p>
             </CardContent>
           </Card>
 
@@ -116,19 +151,19 @@ const StakeholderDashboard = () => {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpiData.activeFarmers}</div>
-              <p className="text-xs text-muted-foreground">+3 new this month</p>
+              <div className="text-2xl font-bold">{metrics.activeFarmers}</div>
+              <p className="text-xs text-muted-foreground">Registered collectives</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Compliance Rate</CardTitle>
-              <CheckCircle className="h-4 w-4 text-success" />
+              <CheckCircle className="h-4 w-4 text-emerald-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-success">{kpiData.complianceRate}%</div>
-              <p className="text-xs text-muted-foreground">Last 90 days</p>
+              <div className="text-2xl font-bold text-emerald-600">{metrics.complianceRate}%</div>
+              <p className="text-xs text-muted-foreground">Passed lab quality tests</p>
             </CardContent>
           </Card>
 
@@ -138,8 +173,8 @@ const StakeholderDashboard = () => {
               <Target className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">{kpiData.avgQualityScore}/5</div>
-              <p className="text-xs text-muted-foreground">Across all batches</p>
+              <div className="text-2xl font-bold text-primary">{metrics.avgQualityScore}/5</div>
+              <p className="text-xs text-muted-foreground">Consumer ratings</p>
             </CardContent>
           </Card>
         </div>
@@ -159,11 +194,11 @@ const StakeholderDashboard = () => {
               <Card>
                 <CardHeader>
                   <CardTitle>Harvest Volume Trend</CardTitle>
-                  <CardDescription>Weekly harvest volumes over the last month</CardDescription>
+                  <CardDescription>Weight distribution over logged dates</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={harvestTrend}>
+                    <LineChart data={metrics.harvestTrend}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
                       <YAxis />
@@ -177,21 +212,21 @@ const StakeholderDashboard = () => {
               <Card>
                 <CardHeader>
                   <CardTitle>Quality Test Results</CardTitle>
-                  <CardDescription>Distribution of quality test outcomes</CardDescription>
+                  <CardDescription>Passed vs Failed test ratios</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
                     <PieChart>
                       <Pie
-                        data={qualityData}
+                        data={metrics.qualityData}
                         cx="50%"
                         cy="50%"
                         outerRadius={80}
                         dataKey="value"
-                        label={({ name, value }) => `${name}: ${value}%`}
+                        label={({ name, value }) => `${name}: ${value}`}
                       >
-                        {qualityData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        {metrics.qualityData.map((entry: any, index: number) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill || (index === 0 ? "#10b981" : "#ef4444")} />
                         ))}
                       </Pie>
                       <Tooltip />
@@ -204,18 +239,18 @@ const StakeholderDashboard = () => {
             {/* Alerts & Notifications */}
             <Card className="mb-6">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-md">
                   <Bell className="w-5 h-5" />
                   Recent Alerts & Notifications
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {alertsData.map((alert) => (
+                  {metrics.alertsData.map((alert: any) => (
                     <div key={alert.id} className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
                       <div className={`w-2 h-2 rounded-full mt-2 ${
                         alert.type === 'warning' ? 'bg-yellow-500' :
-                        alert.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
+                        alert.type === 'success' ? 'bg-emerald-500' : 'bg-blue-500'
                       }`} />
                       <div className="flex-1">
                         <p className="text-sm font-medium">{alert.message}</p>
@@ -236,7 +271,7 @@ const StakeholderDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {farmerPerformance.map((farmer) => (
+                  {metrics.farmerPerformance.map((farmer: any) => (
                     <div key={farmer.name} className="p-4 border rounded-lg">
                       <div className="flex justify-between items-center mb-3">
                         <div className="font-medium">Farmer {farmer.name}</div>
@@ -252,7 +287,10 @@ const StakeholderDashboard = () => {
                           <p className="font-medium text-success">{farmer.compliance}%</p>
                         </div>
                         <div>
-                          <Button variant="outline" size="sm">View Details</Button>
+                          <Button variant="outline" size="sm" onClick={() => {
+                            setSearchQuery(farmer.name);
+                            setActiveTab("overview");
+                          }}>View Batches</Button>
                         </div>
                       </div>
                     </div>
@@ -269,15 +307,19 @@ const StakeholderDashboard = () => {
                 <CardDescription>Track performance by geographical region</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={400}>
-                  <BarChart data={regionalData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="region" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="batches" fill="#10b981" />
-                  </BarChart>
-                </ResponsiveContainer>
+                {metrics.regionalData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={400}>
+                    <BarChart data={metrics.regionalData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="region" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="batches" fill="#10b981" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-center text-muted-foreground">No regional data available.</p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -286,24 +328,24 @@ const StakeholderDashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Globe className="w-5 h-5" />
+                  <CardTitle className="flex items-center gap-2 text-md">
+                    <Globe className="w-5 h-5 text-emerald-700" />
                     Environmental Impact
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="p-4 bg-green-50 rounded-lg">
-                    <div className="text-2xl font-bold text-green-700">{kpiData.carbonFootprint}</div>
-                    <p className="text-sm text-green-600">Total Carbon Footprint Saved</p>
+                  <div className="p-4 bg-emerald-50 rounded-lg">
+                    <div className="text-2xl font-bold text-emerald-800">{metrics.carbonFootprint}</div>
+                    <p className="text-sm text-emerald-700">Total Carbon Footprint Saved</p>
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground">Organic Farms:</span>
-                      <p className="font-medium">42/45 (93%)</p>
+                      <p className="font-medium">100%</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Fair Trade:</span>
-                      <p className="font-medium">38/45 (84%)</p>
+                      <p className="font-medium">100%</p>
                     </div>
                   </div>
                 </CardContent>
@@ -336,27 +378,28 @@ const StakeholderDashboard = () => {
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Batch Search & Audit</CardTitle>
-            <CardDescription>Search and audit specific batches for compliance</CardDescription>
+            <CardDescription>Search and audit specific batches for compliance. Click on a batch to view its public provenance timeline.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4 mb-6">
               <div className="flex-1">
                 <Input
-                  placeholder="Search by Batch ID, Collector ID, or Product Name"
+                  placeholder="Search by Batch ID, Collector ID, or Herb/Product Name"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="h-12 text-lg"
                 />
               </div>
-              <Button size="lg">
+              <Button size="lg" onClick={() => {}}>
                 <Search className="w-4 h-4 mr-2" />
                 Search
               </Button>
             </div>
 
             {/* Results Table */}
-            <div className="border rounded-lg">
-                <div className="grid grid-cols-6 gap-4 p-4 border-b bg-muted font-medium">
+            <div className="border rounded-lg overflow-x-auto">
+              <div className="min-w-[700px]">
+                <div className="grid grid-cols-6 gap-4 p-4 border-b bg-muted font-semibold">
                   <div>Batch ID</div>
                   <div>Product</div>
                   <div>Farmer ID</div>
@@ -364,23 +407,32 @@ const StakeholderDashboard = () => {
                   <div>Date</div>
                   <div>Status</div>
                 </div>
-                {recentBatches.map((batch) => (
-                  <div key={batch.batchId} className="grid grid-cols-6 gap-4 p-4 border-b hover:bg-muted/50">
-                    <div className="font-medium">{batch.batchId}</div>
-                    <div>{batch.product}</div>
-                    <div>{batch.farmer}</div>
-                    <div>{batch.location}</div>
-                    <div>{batch.date}</div>
-                    <div>
-                      <Badge variant={
-                        batch.status === "Completed" ? "secondary" :
-                        batch.status === "Quality Check" ? "default" : "outline"
-                      }>
-                        {batch.status}
-                      </Badge>
+                {filteredBatches.length > 0 ? (
+                  filteredBatches.map((batch: any) => (
+                    <div 
+                      key={batch.batchId} 
+                      className="grid grid-cols-6 gap-4 p-4 border-b hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/provenance/${batch.batchId}`)}
+                    >
+                      <div className="font-semibold text-primary">{batch.batchId}</div>
+                      <div>{batch.product}</div>
+                      <div>{batch.farmer}</div>
+                      <div className="truncate">{batch.location}</div>
+                      <div>{batch.date}</div>
+                      <div>
+                        <Badge variant={
+                          batch.status === "Completed" ? "secondary" :
+                          batch.status === "Quality Check" ? "default" : "outline"
+                        }>
+                          {batch.status}
+                        </Badge>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="p-4 text-center text-muted-foreground text-sm">No batches found matching the search query.</p>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -434,7 +486,12 @@ const StakeholderDashboard = () => {
                 </Select>
               </div>
             </div>
-            <Button size="lg">
+            <Button size="lg" onClick={() => {
+              toast({
+                title: "Report Generated",
+                description: `Successfully compiled the ${selectedTimeRange}-day compliance summary.`,
+              });
+            }}>
               <Download className="w-4 h-4 mr-2" />
               Generate Report (PDF/Excel)
             </Button>

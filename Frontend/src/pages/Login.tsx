@@ -8,12 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "@/hooks/use-toast";
 import { Leaf, FlaskConical, BarChart3 } from "lucide-react";
 
-import { auth } from "@/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();
   const from = (location.state as any)?.from?.pathname as string | undefined;
 
   const [userType, setUserType] = useState<"farmer" | "lab" | "stakeholder" | "">("");
@@ -37,15 +37,30 @@ const Login = () => {
 
     setLoading(true);
 
-    // treat id as email if it contains @, otherwise map to domain (adjust as needed)
-    const email = formData.id.includes("@") ? formData.id : `${formData.id}@example.com`;
-
     try {
-      await signInWithEmailAndPassword(auth, email, formData.password);
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: formData.id,
+          password: formData.password,
+          userType: userType,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Invalid credentials");
+      }
+
+      const data = await response.json();
+      login(data.token, data.user);
 
       toast({
         title: "Login Successful",
-        description: `Welcome ${formData.id}!`,
+        description: `Welcome ${data.user.name}!`,
       });
 
       // If the user was redirected here from a protected page, go back there.
@@ -69,28 +84,7 @@ const Login = () => {
           navigate('/', { replace: true });
       }
     } catch (err: any) {
-      const code = err?.code;
-      let message = err?.message || "Invalid credentials";
-
-      if (code) {
-        switch (code) {
-          case "auth/user-not-found":
-          case "auth/wrong-password":
-            message = "Invalid ID/email or password.";
-            break;
-          case "auth/invalid-email":
-            message = "Invalid email format.";
-            break;
-          case "auth/too-many-requests":
-            message = "Too many attempts. Try again later.";
-            break;
-          case "auth/user-disabled":
-            message = "This account has been disabled.";
-            break;
-          default:
-            break;
-        }
-      }
+      const message = err?.message || "Invalid credentials";
 
       toast({
         title: "Login Failed",

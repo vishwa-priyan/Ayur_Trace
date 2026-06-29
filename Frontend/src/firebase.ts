@@ -17,24 +17,6 @@
   };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth();
-const emailInput = document.getElementById('email') as HTMLInputElement | null;
-const passwordInput = document.getElementById('password') as HTMLInputElement | null;
-const email = emailInput ? emailInput.value : '';
-const password = passwordInput ? passwordInput.value : '';
-signInWithEmailAndPassword(auth, email, password)
-  .then((userCredential) => {
-    // Signed in 
-    const user = userCredential.user;
-    console.log("User signed in:", user);
-  })
-  .catch((error) => {
-    console.error("Error signing in:", error);
-    const errorCode = error.code;
-    const errorMessage = error.message;
-  });
+const auth = getAuth(app);
 
-  // Initialize Firebase
-
-  //const auth = getAuth(app);
-  export { auth };
+export { auth };

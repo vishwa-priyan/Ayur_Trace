@@ -3,7 +3,6 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import CollectionEvent from "./pages/CollectionEvent";
 import QualityTest from "./pages/QualityTest";
@@ -11,6 +10,7 @@ import Login from "./pages/Login";
 import Provenance from "./pages/Provenance";
 import StakeholderDashboard from "./pages/StakeholderDashboard";
 import NotFound from "./pages/NotFound";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -23,10 +23,31 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/collection" element={<CollectionEvent />} />
-          <Route path="/quality-test" element={<QualityTest />} />
+          <Route 
+            path="/collection" 
+            element={
+              <ProtectedRoute>
+                <CollectionEvent />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/quality-test" 
+            element={
+              <ProtectedRoute>
+                <QualityTest />
+              </ProtectedRoute>
+            } 
+          />
           <Route path="/provenance/:batchId" element={<Provenance />} />
-          <Route path="/stakeholder" element={<StakeholderDashboard />} />
+          <Route 
+            path="/stakeholder" 
+            element={
+              <ProtectedRoute>
+                <StakeholderDashboard />
+              </ProtectedRoute>
+            } 
+          />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

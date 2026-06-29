@@ -1,96 +1,49 @@
-import React, { useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { CheckCircle, MapPin, FlaskConical, Factory, Package, User, Calendar, Weight, Leaf, Star, Send, Camera, Heart } from "lucide-react";
+import { CheckCircle, MapPin, FlaskConical, Factory, Package, User, Calendar, Leaf, Send, Camera, Heart, ArrowLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import MapDisplay from "@/components/MapDisplay";
 import farmerImage from "@/assets/herb_photo.jpeg";
 
 const Provenance = () => {
   const { batchId } = useParams();
+  const navigate = useNavigate();
+  const [provenanceData, setProvenanceData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [feedbackData, setFeedbackData] = useState({
     rating: 0,
     comment: "",
     category: ""
   });
 
-  // Mock data - would come from blockchain/database
-  const provenanceData = {
-    batchId: batchId || "TXN0042",
-    productName: "Ashwagandha Restorative Capsules",
-    status: "verified",
-    geotaggedPhoto: farmerImage,
-    timeline: [
-        {
-          id: 1,
-          type: "collection",
-          title: "Collection Event",
-          date: "2025-01-15",
-          location: "Jaipur, Rajasthan",
-          collector: "Ravi Cooperative - Farmer F2025001",
-          details: {
-            weight: "25.5 kg",
-            quality: "Excellent",
-            coords: { lat: 26.9124, lng: 75.7873 },
-            geotaggedPhoto: farmerImage
-          },
-          icon: MapPin,
-          status: "completed"
-        },
-      {
-        id: 2,
-        type: "handover",
-        title: "Custody Handover", 
-        date: "2025-01-16",
-        from: "Ravi Cooperative",
-        to: "Rajasthan Herbal Processing Ltd.",
-        icon: Package,
-        status: "completed"
-      },
-      {
-        id: 3,
-        type: "testing",
-        title: "Quality Testing",
-        date: "2025-01-18",
-        lab: "Certified Ayur Labs Pvt. Ltd.",
-        results: {
-          moisture: "8.2%",
-          pesticide: "Not Detected",
-          dna: "Authentic Withania somnifera"
-        },
-        compliance: "Passed All Tests",
-        icon: FlaskConical,
-        status: "completed"
-      },
-      {
-        id: 4,
-        type: "processing",
-        title: "Processing & Formulation",
-        date: "2025-01-20",
-        steps: ["Drying (45°C)", "Grinding (Fine)", "Encapsulation"],
-        outputWeight: "22.1 kg (dry)",
-        icon: Factory,
-        status: "completed"
-      },
-      {
-        id: 5,
-        type: "packaging",
-        title: "Final Packaging",
-        date: "2025-01-25",
-        manufacturer: "Ayur Wellness Co.",
-        packagingDate: "2025-01-25",
-        icon: Package,
-        status: "completed"
+  useEffect(() => {
+    const fetchProvenance = async () => {
+      try {
+        const response = await fetch(`/api/provenance/${batchId}`);
+        if (!response.ok) {
+          throw new Error("Failed to load provenance timeline for batch " + batchId);
+        }
+        const data = await response.json();
+        setProvenanceData(data);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || "Error loading provenance timeline.");
+      } finally {
+        setLoading(false);
       }
-    ]
-  };
+    };
+    fetchProvenance();
+  }, [batchId]);
 
-  const handleFeedback = () => {
+  const handleFeedback = async () => {
     if (!feedbackData.rating || !feedbackData.comment) {
       toast({
         title: "Incomplete Feedback",
@@ -100,46 +53,107 @@ const Provenance = () => {
       return;
     }
 
-    toast({
-      title: "Thank You!",
-      description: "Your feedback has been sent to the farmer",
-    });
+    try {
+      const response = await fetch(`/api/provenance/${batchId}/feedback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(feedbackData)
+      });
 
-    // Reset form
-    setFeedbackData({ rating: 0, comment: "", category: "" });
+      if (!response.ok) {
+        throw new Error("Failed to submit feedback");
+      }
+
+      toast({
+        title: "Thank You!",
+        description: "Your feedback has been sent to the farmer",
+      });
+
+      // Reset form
+      setFeedbackData({ rating: 0, comment: "", category: "" });
+    } catch (err: any) {
+      toast({
+        title: "Submission Failed",
+        description: err.message || "Could not save your feedback.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'collection': return MapPin;
+      case 'handover': return Package;
+      case 'testing': return FlaskConical;
+      case 'processing': return Factory;
+      case 'packaging': return Package;
+      default: return CheckCircle;
+    }
   };
 
   const StatusIcon = ({ status }: { status: string }) => (
     status === "verified" ? (
-      <div className="flex items-center gap-2 text-success">
-        <CheckCircle className="w-5 h-5" />
-        <span className="font-semibold">Authenticity Verified</span>
+      <div className="flex items-center justify-center gap-2 text-success">
+        <CheckCircle className="w-5 h-5 text-emerald-600" />
+        <span className="font-semibold text-emerald-600 text-lg">Authenticity Verified</span>
       </div>
     ) : (
-      <div className="flex items-center gap-2 text-destructive">
+      <div className="flex items-center justify-center gap-2 text-destructive">
         <CheckCircle className="w-5 h-5" />
-        <span className="font-semibold">Verification Failed</span>
+        <span className="font-semibold text-lg">Verification Failed</span>
       </div>
     )
   );
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-earth">
+        <div className="text-center">
+          <p className="text-lg text-muted-foreground animate-pulse">Loading batch audit trail...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !provenanceData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-earth">
+        <Card className="w-full max-w-md p-6 text-center">
+          <CardTitle className="text-destructive mb-4">Batch Not Found</CardTitle>
+          <p className="text-muted-foreground mb-6">
+            The batch ID "{batchId}" could not be verified on our PostgreSQL ledger.
+          </p>
+          <Button onClick={() => navigate('/')} className="w-full">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Dashboard
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-earth">
       <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <Button variant="ghost" onClick={() => navigate('/')} className="mb-4">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back
+        </Button>
         {/* Header */}
         <Card className="mb-8">
           <CardHeader className="text-center">
             <StatusIcon status={provenanceData.status} />
-            <CardTitle className="text-2xl mt-4">{provenanceData.productName}</CardTitle>
-            <p className="text-muted-foreground">Batch ID: {provenanceData.batchId}</p>
+            <CardTitle className="text-3xl mt-4 text-emerald-800">{provenanceData.productName}</CardTitle>
+            <p className="text-muted-foreground text-sm font-mono mt-1">Batch ID: {provenanceData.batchId}</p>
           </CardHeader>
           <CardContent>
-            <div className="text-center">
-              <p className="text-lg mb-4">
-                Sourced directly from certified organic farms in Rajasthan, collected by the Ravi Cooperative.
+            <div className="text-center max-w-xl mx-auto">
+              <p className="text-md mb-4 text-muted-foreground">
+                Sourced directly from certified organic farms in Rajasthan, collected by local collectives.
               </p>
               <Badge variant="secondary" className="bg-success/10 text-success">
-                <Leaf className="w-4 h-4 mr-1" />
+                <Leaf className="w-4 h-4 mr-1 text-emerald-600" />
                 Sustainably Sourced
               </Badge>
             </div>
@@ -150,12 +164,12 @@ const Provenance = () => {
         <Card>
           <CardHeader>
             <CardTitle>Product Journey</CardTitle>
-            <p className="text-muted-foreground">Complete blockchain-verified audit trail</p>
+            <p className="text-muted-foreground">Complete database-verified audit trail</p>
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {provenanceData.timeline.map((step, index) => {
-                const Icon = step.icon;
+              {provenanceData.timeline.map((step: any, index: number) => {
+                const Icon = getIcon(step.type);
                 return (
                   <div key={step.id} className="relative">
                     {/* Timeline line */}
@@ -164,13 +178,13 @@ const Provenance = () => {
                     )}
                     
                     <div className="flex gap-4">
-                      <div className="p-3 bg-primary/10 rounded-full">
+                      <div className="p-3 bg-primary/10 rounded-full h-fit">
                         <Icon className="w-6 h-6 text-primary" />
                       </div>
                       
                       <div className="flex-1 space-y-2">
                         <div className="flex items-center justify-between">
-                          <h3 className="font-semibold">{step.title}</h3>
+                          <h3 className="font-semibold text-lg">{step.title}</h3>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Calendar className="w-4 h-4" />
                             {step.date}
@@ -181,21 +195,27 @@ const Provenance = () => {
                           <div className="space-y-4">
                             <div className="space-y-2">
                               <p className="text-sm">📍 {step.location}</p>
-                              <p className="text-sm">👨‍🌾 {step.collector}</p>
-                              <div className="flex gap-4 text-sm">
+                              <p className="text-sm font-medium">👨‍🌾 {step.collector}</p>
+                              <div className="flex gap-4 text-sm text-muted-foreground">
                                 <span>Weight: {step.details?.weight}</span>
                                 <span>Quality: {step.details?.quality}</span>
+                                {step.details?.moistureLevel && (
+                                  <span>Moisture: {step.details.moistureLevel}</span>
+                                )}
                               </div>
+                              {step.details?.collectorNotes && (
+                                <p className="text-xs italic text-muted-foreground">Notes: "{step.details.collectorNotes}"</p>
+                              )}
                             </div>
                             
-                            {step.details?.geotaggedPhoto && (
-                              <div className="space-y-2">
+                            {farmerImage && (
+                              <div className="space-y-2 max-w-md">
                                 <h4 className="text-sm font-medium flex items-center gap-2">
                                   <Camera className="w-4 h-4" />
                                   Geotagged Collection Photo
                                 </h4>
                                 <img 
-                                  src={step.details.geotaggedPhoto} 
+                                  src={farmerImage} 
                                   alt="Collection site" 
                                   className="w-full h-48 object-cover rounded-lg border"
                                 />
@@ -220,21 +240,21 @@ const Provenance = () => {
                         )}
                         
                         {step.type === "handover" && (
-                          <div className="space-y-1">
-                            <p className="text-sm">From: {step.from}</p>
-                            <p className="text-sm">To: {step.to}</p>
+                          <div className="space-y-1 text-sm text-muted-foreground">
+                            <p>From: <span className="font-semibold text-foreground">{step.from}</span></p>
+                            <p>To: <span className="font-semibold text-foreground">{step.to}</span></p>
                           </div>
                         )}
                         
                         {step.type === "testing" && (
                           <div className="space-y-2">
-                            <p className="text-sm font-medium">{step.lab}</p>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                              <div className="text-sm">Moisture: {step.results?.moisture}</div>
-                              <div className="text-sm">Pesticide: {step.results?.pesticide}</div>
-                              <div className="text-sm">DNA: {step.results?.dna}</div>
+                            <p className="text-sm font-semibold text-foreground">{step.lab}</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-muted-foreground">
+                              <div>Moisture: {step.results?.moisture}</div>
+                              <div>Pesticide: {step.results?.pesticide}</div>
+                              <div>DNA: {step.results?.dna}</div>
                             </div>
-                            <Badge variant="secondary" className="bg-success/10 text-success">
+                            <Badge variant="secondary" className="bg-success/10 text-success mt-2">
                               {step.compliance}
                             </Badge>
                           </div>
@@ -242,19 +262,26 @@ const Provenance = () => {
                         
                         {step.type === "processing" && (
                           <div className="space-y-2">
+                            <p className="text-sm font-semibold text-foreground">{step.facility}</p>
                             <div className="flex flex-wrap gap-2">
-                              {step.steps?.map((processStep, i) => (
+                              {step.steps?.map((processStep: string, i: number) => (
                                 <Badge key={i} variant="outline">{processStep}</Badge>
                               ))}
                             </div>
-                            <p className="text-sm">Final Output: {step.outputWeight}</p>
+                            <p className="text-sm text-muted-foreground">Final Output Weight: {step.outputWeight}</p>
                           </div>
                         )}
                         
                         {step.type === "packaging" && (
-                          <div className="space-y-1">
-                            <p className="text-sm">Manufacturer: {step.manufacturer}</p>
-                            <p className="text-sm">Packaging Date: {step.packagingDate}</p>
+                          <div className="space-y-1 text-sm text-muted-foreground">
+                            <p>Manufacturer: <span className="font-semibold text-foreground">{step.manufacturer}</span></p>
+                            <p>Packaging Date: <span className="font-semibold text-foreground">{step.packagingDate}</span></p>
+                            {step.details?.outputWeight && (
+                              <p>Total Packed Weight: {step.details.outputWeight}</p>
+                            )}
+                            {step.details?.storageLocation && (
+                              <p>Storage: {step.details.storageLocation}</p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -281,15 +308,15 @@ const Provenance = () => {
           <CardContent>
             <div className="space-y-4">
               <div>
-                <h4 className="font-semibold">Ravi Cooperative</h4>
+                <h4 className="font-semibold text-lg text-emerald-800">Ravi Cooperative</h4>
                 <p className="text-sm text-muted-foreground">Certified Organic Farmers Collective</p>
               </div>
-              <p className="text-sm">
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 A community-driven cooperative of 200+ farmers in Rajasthan committed to sustainable 
                 Ayurvedic herb cultivation. Practicing traditional organic farming methods passed down 
                 through generations while embracing modern traceability technologies.
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-2">
                 <Badge variant="outline">Organic Certified</Badge>
                 <Badge variant="outline">Fair Trade</Badge>
                 <Badge variant="outline">Sustainable Practices</Badge>
@@ -302,7 +329,7 @@ const Provenance = () => {
         <Card className="mt-8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Heart className="w-5 h-5" />
+              <Heart className="w-5 h-5 text-rose-500" />
               Send Feedback to Farmer
             </CardTitle>
             <p className="text-muted-foreground text-sm">
@@ -352,7 +379,7 @@ const Provenance = () => {
               />
             </div>
             
-            <Button onClick={handleFeedback} className="w-full">
+            <Button onClick={handleFeedback} className="w-full bg-emerald-700 hover:bg-emerald-800">
               <Send className="w-4 h-4 mr-2" />
               Send Feedback to Farmer
             </Button>
@@ -361,7 +388,7 @@ const Provenance = () => {
 
         {/* Call to Action */}
         <div className="mt-8 text-center">
-          <Button size="lg">
+          <Button size="lg" className="bg-emerald-700 hover:bg-emerald-800" onClick={() => navigate('/')}>
             Learn More About Our Supply Chain
           </Button>
         </div>

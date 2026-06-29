@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,9 +12,12 @@ import { ArrowLeft, MapPin, Camera, RefreshCcw, Leaf, CheckCircle, QrCode } from
 import farmerImage from "@/assets/farmer-collection.jpg";
 import QRGenerator from "@/components/QRGenerator";
 import MapDisplay from "@/components/MapDisplay";
+import { useAuth } from "@/contexts/AuthContext";
 
 const CollectionEvent = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  
   const [formData, setFormData] = useState({
     herbName: "",
     batchRef: "",
@@ -31,8 +34,9 @@ const CollectionEvent = () => {
   const [locationStatus, setLocationStatus] = useState<"loading" | "success" | "error">("loading");
   const [photoUploaded, setPhotoUploaded] = useState(false);
   const [autoBatchId, setAutoBatchId] = useState("");
+  const [farmerHistory, setFarmerHistory] = useState<any[]>([]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     // Generate auto batch ID
     const generateBatchId = () => {
       const now = new Date();
@@ -53,16 +57,36 @@ const CollectionEvent = () => {
       }));
       setLocationStatus("success");
     }, 2000);
+
+    // Fetch batches history
+    const fetchHistory = async () => {
+      const token = localStorage.getItem("ayurtrace_token");
+      if (!token) return;
+      try {
+        const response = await fetch("/api/batches", {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setFarmerHistory(data.map((b: any) => ({
+            date: b.harvest_date ? b.harvest_date.split('T')[0] : '',
+            herb: b.herb_name.split(' ')[0],
+            weight: `${b.weight} ${b.unit}`,
+            quality: b.visual_quality,
+            batchId: b.batch_id
+          })));
+        }
+      } catch (err) {
+        console.error("Error fetching farmer history:", err);
+      }
+    };
+
+    fetchHistory();
   }, []);
 
-  // Mock farmer history data
-  const farmerHistory = [
-    { date: "2025-01-20", herb: "Tulsi", weight: "15.2 kg", quality: "Excellent", batchId: "AYR202501001" },
-    { date: "2025-01-15", herb: "Ashwagandha", weight: "22.5 kg", quality: "Good", batchId: "AYR202501002" },
-    { date: "2025-01-10", herb: "Brahmi", weight: "8.7 kg", quality: "Excellent", batchId: "AYR202501003" }
-  ];
-
-  // Mock customer feedback
+  // Fallback customer feedback
   const customerFeedback = [
     { date: "2025-01-25", product: "Tulsi Capsules", rating: 5, comment: "Excellent quality, very fresh!", customer: "Anonymous" },
     { date: "2025-01-22", product: "Ashwagandha Powder", rating: 4, comment: "Good product, fast delivery", customer: "Verified Buyer" },
@@ -80,7 +104,7 @@ const CollectionEvent = () => {
     "Giloy (Tinospora cordifolia)"
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.herbName || !formData.weight || !formData.visualQuality) {
@@ -92,21 +116,67 @@ const CollectionEvent = () => {
       return;
     }
 
-    // Use auto-generated batch ID
-    const finalBatchId = autoBatchId;
+    const token = localStorage.getItem("ayurtrace_token");
+    if (!token) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in first",
+        variant: "destructive"
+      });
+      navigate('/login');
+      return;
+    }
 
-    // Simulate submission
-    toast({
-      title: "Collection Event Recorded!",
-      description: `Batch ${finalBatchId} successfully logged to blockchain`,
-    });
+    // Map moisture text selection to standard percentage value
+    let numericMoisture = 9.0;
+    if (formData.moistureLevel === 'very-dry') numericMoisture = 6.0;
+    else if (formData.moistureLevel === 'moderately-dry') numericMoisture = 9.5;
+    else if (formData.moistureLevel === 'wet') numericMoisture = 14.5;
 
-    // Navigate back after success
-    setTimeout(() => navigate('/'), 2000);
+    try {
+      const response = await fetch("/api/batches", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          batchId: autoBatchId,
+          herbName: formData.herbName,
+          weight: parseFloat(formData.weight),
+          unit: formData.unit,
+          harvestDate: formData.harvestDate,
+          visualQuality: formData.visualQuality,
+          pestDisease: formData.pestDisease,
+          moistureLevel: numericMoisture,
+          latitude: formData.location.lat,
+          longitude: formData.location.lng,
+          address: formData.location.address,
+          collectorNotes: formData.collectorNotes
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || "Failed to record collection event.");
+      }
+
+      toast({
+        title: "Collection Event Recorded!",
+        description: `Batch ${autoBatchId} successfully logged to PostgreSQL`,
+      });
+
+      setTimeout(() => navigate('/'), 2000);
+    } catch (err: any) {
+      toast({
+        title: "Submission Failed",
+        description: err.message || "Could not connect to the backend server.",
+        variant: "destructive"
+      });
+    }
   };
 
   const handlePhotoUpload = () => {
-    // Simulate photo upload
     setPhotoUploaded(true);
     toast({
       title: "Photo Uploaded!",
@@ -136,7 +206,7 @@ const CollectionEvent = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-foreground">AyurTrace Collector</h1>
-                <p className="text-sm text-muted-foreground">Welcome, Farmer ID: F2025001</p>
+                <p className="text-sm text-muted-foreground">Welcome, Farmer ID: {user?.id || "F2025001"}</p>
               </div>
             </div>
           </div>
@@ -226,30 +296,30 @@ const CollectionEvent = () => {
                 <div className="space-y-4">
                   <h3 className="font-semibold text-foreground">Location</h3>
                   
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4" />
-                      Current Location (GPS)
-                    </Label>
-                    <Button variant="ghost" size="sm" onClick={refreshGPS} disabled={locationStatus === "loading"}>
-                      <RefreshCcw className={`w-4 h-4 ${locationStatus === "loading" ? "animate-spin" : ""}`} />
-                    </Button>
-                  </div>
-                  
-                  {locationStatus === "success" ? (
-                    <MapDisplay
-                      lat={formData.location.lat}
-                      lng={formData.location.lng}
-                      address={formData.location.address}
-                      isInApprovedZone={true}
-                    />
-                  ) : (
-                    <div className="p-4 bg-muted rounded-lg">
-                      <p className="text-sm text-muted-foreground">Acquiring GPS location...</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4" />
+                        Current Location (GPS)
+                      </Label>
+                      <Button type="button" variant="ghost" size="sm" onClick={refreshGPS} disabled={locationStatus === "loading"}>
+                        <RefreshCcw className={`w-4 h-4 ${locationStatus === "loading" ? "animate-spin" : ""}`} />
+                      </Button>
                     </div>
-                  )}
-                </div>
+                    
+                    {locationStatus === "success" ? (
+                      <MapDisplay
+                        lat={formData.location.lat}
+                        lng={formData.location.lng}
+                        address={formData.location.address}
+                        isInApprovedZone={true}
+                      />
+                    ) : (
+                      <div className="p-4 bg-muted rounded-lg">
+                        <p className="text-sm text-muted-foreground">Acquiring GPS location...</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Quality Metrics */}
@@ -263,10 +333,10 @@ const CollectionEvent = () => {
                         <SelectValue placeholder="Select quality level" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="excellent">Excellent</SelectItem>
-                        <SelectItem value="good">Good</SelectItem>
-                        <SelectItem value="fair">Fair</SelectItem>
-                        <SelectItem value="poor">Poor</SelectItem>
+                        <SelectItem value="Excellent">Excellent</SelectItem>
+                        <SelectItem value="Good">Good</SelectItem>
+                        <SelectItem value="Fair">Fair</SelectItem>
+                        <SelectItem value="Poor">Poor</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

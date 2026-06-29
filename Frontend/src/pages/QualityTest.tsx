@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,9 +11,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { ArrowLeft, FlaskConical, Search, QrCode, Upload, CheckCircle, AlertTriangle } from "lucide-react";
 import labImage from "@/assets/lab-testing.jpg";
+import { useAuth } from "@/contexts/AuthContext";
 
 const QualityTest = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("quality-test");
   const [batchId, setBatchId] = useState("");
   const [batchFound, setBatchFound] = useState(false);
@@ -61,53 +63,91 @@ const QualityTest = () => {
     storageLocation: ""
   });
 
-  const searchBatch = () => {
-    if (!batchId.trim()) return;
+  // Automatically fill technician and processor name from user profile
+  useEffect(() => {
+    if (user) {
+      setQualityTestData(prev => ({ ...prev, technician: user.name }));
+      setProcessingData(prev => ({ ...prev, processedBy: user.name }));
+    }
+  }, [user]);
+
+  const searchBatch = async () => {
+    if (!batchId.trim()) {
+      toast({
+        title: "Missing Batch ID",
+        description: "Please enter a batch ID to search.",
+        variant: "destructive"
+      });
+      return;
+    }
     
-    // Simulate batch lookup
-    setTimeout(() => {
-      const mockBatchData = {
-        id: batchId,
-        herbName: "Ashwagandha (Withania somnifera)",
-        farmerName: "Ravi Cooperative - F2025001",
-        harvestDate: "2025-01-15",
-        weight: "25.5 kg",
-        location: "Jaipur, Rajasthan (26.9124, 75.7873)",
+    const token = localStorage.getItem("ayurtrace_token");
+    if (!token) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in first",
+        variant: "destructive"
+      });
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/batches/${batchId.trim()}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Batch ${batchId} not found.`);
+      }
+
+      const data = await response.json();
+      
+      setBatchData({
+        id: data.batch_id,
+        herbName: data.herb_name,
+        farmerName: `${data.farmer_name} (${data.farmer_id})`,
+        harvestDate: data.harvest_date ? data.harvest_date.split('T')[0] : '',
+        weight: `${data.weight} ${data.unit}`,
+        location: data.address || `GPS: ${data.latitude}, ${data.longitude}`,
         farmer: {
-          name: "Ravi Cooperative",
-          id: "F2025001",
+          name: data.farmer_name,
+          id: data.farmer_id,
           totalHarvests: 15,
-          avgQuality: 4.2
+          avgQuality: 4.5
         }
-      };
-      
-      const mockHistory = [
-        {
-          id: 1,
-          step: "Collection Event",
-          date: "2025-01-15",
-          location: "Jaipur, Rajasthan",
-          status: "Completed",
-          details: "Initial harvest logged"
-        },
-        {
-          id: 2,
-          step: "Transport",
-          date: "2025-01-16", 
-          location: "Processing Facility",
-          status: "Completed",
-          details: "Batch transported to facility"
-        }
-      ];
-      
-      setBatchData(mockBatchData);
-      setBatchHistory(mockHistory);
+      });
+
+      // Fetch provenance timeline for this batch to populate history
+      const provRes = await fetch(`/api/provenance/${batchId.trim()}`);
+      if (provRes.ok) {
+        const provData = await provRes.json();
+        setBatchHistory(provData.timeline.map((step: any, idx: number) => ({
+          id: idx + 1,
+          step: step.title,
+          date: step.date,
+          location: step.location || step.lab || step.facility || step.from || 'Processing Facility',
+          status: 'Completed',
+          details: step.collector || step.compliance || step.details?.outputWeight || 'Blockchain verified step'
+        })));
+      }
+
       setBatchFound(true);
       toast({
         title: "Batch Found",
         description: `Retrieved details for batch ${batchId}`,
       });
-    }, 1000);
+    } catch (err: any) {
+      setBatchFound(false);
+      setBatchHistory([]);
+      toast({
+        title: "Batch Not Found",
+        description: err.message || `No batch found with ID ${batchId}`,
+        variant: "destructive"
+      });
+    }
   };
 
   const handleCertificateUpload = () => {
@@ -118,7 +158,7 @@ const QualityTest = () => {
     });
   };
 
-  const submitQualityTest = (e: React.FormEvent) => {
+  const submitQualityTest = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!batchFound || !qualityTestData.testType || !qualityTestData.technician) {
@@ -130,25 +170,52 @@ const QualityTest = () => {
       return;
     }
 
-    // Add to batch history
-    const newHistoryEntry = {
-      id: batchHistory.length + 1,
-      step: `Quality Test - ${qualityTestData.testType}`,
-      date: qualityTestData.testDate,
-      location: qualityTestData.labName,
-      status: "Completed",
-      details: `${qualityTestData.testType} test completed by ${qualityTestData.technician}`
-    };
-    
-    setBatchHistory([...batchHistory, newHistoryEntry]);
+    const token = localStorage.getItem("ayurtrace_token");
+    if (!token) return;
 
-    toast({
-      title: "Quality Test Recorded!",
-      description: `Test results for batch ${batchId} added to blockchain`,
-    });
+    try {
+      const response = await fetch(`/api/batches/${batchData.id}/quality-test`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          testType: qualityTestData.testType,
+          labName: qualityTestData.labName,
+          testDate: qualityTestData.testDate,
+          technician: qualityTestData.technician,
+          moistureContent: qualityTestData.moistureContent || null,
+          pesticideResult: qualityTestData.pesticideResult,
+          pesticideLevel: qualityTestData.pesticideLevel || null,
+          dnaResult: qualityTestData.dnaResult || null,
+          overallCompliance: qualityTestData.overallCompliance === "pass" ? "Passed" : qualityTestData.overallCompliance === "fail" ? "Failed" : "Conditional",
+          notes: qualityTestData.notes
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || "Failed to save quality test results.");
+      }
+
+      toast({
+        title: "Quality Test Recorded!",
+        description: `Test results for batch ${batchData.id} added to PostgreSQL`,
+      });
+
+      // Refresh history
+      searchBatch();
+    } catch (err: any) {
+      toast({
+        title: "Submission Failed",
+        description: err.message || "Error saving test to PostgreSQL database.",
+        variant: "destructive"
+      });
+    }
   };
 
-  const submitProcessingStep = (e: React.FormEvent) => {
+  const submitProcessingStep = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!batchFound || !processingData.stepType || !processingData.processedBy) {
@@ -160,22 +227,50 @@ const QualityTest = () => {
       return;
     }
 
-    // Add to batch history
-    const newHistoryEntry = {
-      id: batchHistory.length + 1,
-      step: `Processing - ${processingData.stepType}`,
-      date: processingData.startDate,
-      location: processingData.facilityName,
-      status: "Completed",
-      details: `${processingData.stepType} completed by ${processingData.processedBy}`
-    };
-    
-    setBatchHistory([...batchHistory, newHistoryEntry]);
+    const token = localStorage.getItem("ayurtrace_token");
+    if (!token) return;
 
-    toast({
-      title: "Processing Step Recorded!",
-      description: `${processingData.stepType} step for batch ${batchId} added to blockchain`,
-    });
+    try {
+      const response = await fetch(`/api/batches/${batchData.id}/processing`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          stepType: processingData.stepType,
+          facilityName: processingData.facilityName,
+          startDate: processingData.startDate,
+          endDate: processingData.endDate,
+          processedBy: processingData.processedBy,
+          method: processingData.method,
+          temperature: processingData.temperature,
+          duration: processingData.duration,
+          outputWeight: processingData.outputWeight,
+          outputUnit: processingData.outputUnit,
+          storageLocation: processingData.storageLocation
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.message || "Failed to save processing step.");
+      }
+
+      toast({
+        title: "Processing Step Recorded!",
+        description: `${processingData.stepType} step for batch ${batchData.id} added to PostgreSQL`,
+      });
+
+      // Refresh history
+      searchBatch();
+    } catch (err: any) {
+      toast({
+        title: "Submission Failed",
+        description: err.message || "Error saving step to PostgreSQL database.",
+        variant: "destructive"
+      });
+    }
   };
 
   return (
@@ -193,7 +288,7 @@ const QualityTest = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-foreground">AyurTrace Lab & Processor</h1>
-                <p className="text-sm text-muted-foreground">Welcome, Lab Technician: LT2025001</p>
+                <p className="text-sm text-muted-foreground">Welcome, Logged in: {user?.name || "Lab Tech"} ({user?.id || "LT2025001"})</p>
               </div>
             </div>
           </div>
@@ -216,7 +311,7 @@ const QualityTest = () => {
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="flex-1">
                     <Input
-                      placeholder="Enter Batch ID (e.g., AYUR2025001)"
+                      placeholder="Enter Batch ID (e.g., AYR202501002)"
                       value={batchId}
                       onChange={e => setBatchId(e.target.value)}
                       className="h-14 text-lg px-4"
@@ -636,7 +731,7 @@ const QualityTest = () => {
               </CardHeader>
               <CardContent>
                 {batchHistory.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-3 font-sans">
                     {batchHistory.map((entry) => (
                       <div key={entry.id} className="p-3 bg-muted/50 rounded-lg">
                         <div className="font-medium text-sm">{entry.step}</div>
