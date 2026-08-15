@@ -3,15 +3,49 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { query } = require('./db');
+const multer = require('multer');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'ayurtrace_jwt_secret';
 
+/**
+ * Safely convert a Date object or date string to 'YYYY-MM-DD'.
+ * PostgreSQL may return DATE columns as either JS Date objects or ISO strings
+ * depending on the pg driver version and query context.
+ */
+function safeDate(val) {
+  if (!val) return null;
+  if (val instanceof Date) return val.toISOString().split('T')[0];
+  // Already a string — strip the time component if present
+  return String(val).split('T')[0];
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Setup Multer for local uploads
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + '-' + file.originalname);
+  }
+});
+const upload = multer({ storage: storage });
+
+// Serve uploads directory
+app.use('/uploads', express.static('uploads'));
 
 // Token Authentication Middleware
 function authenticateToken(req, res, next) {
@@ -34,6 +68,33 @@ function authenticateToken(req, res, next) {
 // ----------------------------------------
 // Auth Routes
 // ----------------------------------------
+
+// Registration endpoint
+app.post('/api/auth/register', async (req, res) => {
+  const { id, name, email, password, userType } = req.body;
+
+  if (!id || !name || !email || !password || !userType) {
+    return res.status(400).json({ message: 'Please provide all required fields.' });
+  }
+
+  try {
+    const existing = await query('SELECT id FROM users WHERE id = $1 OR email = $2', [id, email]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ message: 'User ID or Email already exists.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await query(
+      'INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
+      [id, name, email, passwordHash, userType]
+    );
+
+    res.status(201).json({ message: 'Registration successful. You can now log in.' });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Internal server error during registration.' });
+  }
+});
 
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
@@ -94,6 +155,16 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   res.json({ user: req.user });
 });
 
+// ----------------------------------------
+// Upload Routes
+// ----------------------------------------
+
+app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No file uploaded.' });
+  }
+  res.json({ url: `/uploads/${req.file.filename}` });
+});
 
 // ----------------------------------------
 // Batch Routes (Collection Events)
@@ -108,11 +179,19 @@ app.post('/api/batches', authenticateToken, async (req, res) => {
   const {
     batchId, herbName, weight, unit, harvestDate,
     visualQuality, pestDisease, moistureLevel,
-    latitude, longitude, address, collectorNotes
+    latitude, longitude, address, collectorNotes, photoUrl
   } = req.body;
 
   if (!batchId || !herbName || !weight || !harvestDate || !visualQuality) {
     return res.status(400).json({ message: 'Missing required collection event fields.' });
+  }
+
+  if (latitude && (isNaN(latitude) || latitude < -90 || latitude > 90)) {
+    return res.status(400).json({ message: 'Invalid latitude.' });
+  }
+
+  if (longitude && (isNaN(longitude) || longitude < -180 || longitude > 180)) {
+    return res.status(400).json({ message: 'Invalid longitude.' });
   }
 
   try {
@@ -125,13 +204,13 @@ app.post('/api/batches', authenticateToken, async (req, res) => {
       `INSERT INTO batches (
         batch_id, herb_name, weight, unit, harvest_date,
         visual_quality, pest_disease, moisture_level,
-        latitude, longitude, address, collector_notes, farmer_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        latitude, longitude, address, collector_notes, farmer_id, photo_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         batchId, herbName, weight, unit || 'kg', harvestDate,
         visualQuality, pestDisease || false, moistureLevel || null,
         latitude || null, longitude || null, address || null,
-        collectorNotes || null, req.user.id
+        collectorNotes || null, req.user.id, photoUrl || null
       ]
     );
 
@@ -210,7 +289,7 @@ app.post('/api/batches/:batchId/quality-test', authenticateToken, async (req, re
   const {
     testType, labName, testDate, technician,
     moistureContent, pesticideResult, pesticideLevel,
-    dnaResult, overallCompliance, notes
+    dnaResult, overallCompliance, notes, certificateUrl
   } = req.body;
 
   if (!testType || !technician || !overallCompliance) {
@@ -229,12 +308,12 @@ app.post('/api/batches/:batchId/quality-test', authenticateToken, async (req, re
       `INSERT INTO quality_tests (
         batch_id, test_type, lab_name, test_date, technician,
         moisture_content, pesticide_result, pesticide_level,
-        dna_result, overall_compliance, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        dna_result, overall_compliance, notes, certificate_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
       [
         batchId, testType, labName || 'AyurLab Certified Testing', testDate, technician,
         moistureContent || null, pesticideResult || 'not-detected', pesticideLevel || null,
-        dnaResult || null, overallCompliance, notes || null
+        dnaResult || null, overallCompliance, notes || null, certificateUrl || null
       ]
     );
 
@@ -319,6 +398,7 @@ app.post('/api/batches/:batchId/processing', authenticateToken, async (req, res)
 // Public lookup for product journey
 app.get('/api/provenance/:batchId', async (req, res) => {
   const { batchId } = req.params;
+  const location = req.query.location || 'Unknown';
 
   try {
     // Get batch
@@ -333,6 +413,9 @@ app.get('/api/provenance/:batchId', async (req, res) => {
     if (batchRes.rows.length === 0) {
       return res.status(404).json({ message: `Batch ${batchId} not found.` });
     }
+
+    // Track scan
+    await query('INSERT INTO consumer_scans (batch_id, location) VALUES ($1, $2)', [batchId, location]);
 
     const batch = batchRes.rows[0];
 
@@ -356,43 +439,48 @@ app.get('/api/provenance/:batchId', async (req, res) => {
       id: `coll-${batch.batch_id}`,
       type: 'collection',
       title: 'Collection Event',
-      date: batch.harvest_date.toISOString().split('T')[0],
+      date: safeDate(batch.harvest_date),
       location: batch.address || 'Unknown site',
       collector: `${batch.farmer_name} - Farmer ${batch.farmer_id}`,
+      farmerName: batch.farmer_name,
+      farmerId: batch.farmer_id,
       details: {
         weight: `${batch.weight} ${batch.unit}`,
         quality: batch.visual_quality,
         coords: batch.latitude ? { lat: parseFloat(batch.latitude), lng: parseFloat(batch.longitude) } : null,
         pestDisease: batch.pest_disease,
         moistureLevel: batch.moisture_level ? `${batch.moisture_level}%` : null,
-        collectorNotes: batch.collector_notes
+        collectorNotes: batch.collector_notes,
+        photoUrl: batch.photo_url || null
       },
       status: 'completed'
     });
 
-    // 2. Custody Handover (Simulated based on collection)
-    const harvestDateObj = new Date(batch.harvest_date);
+    // 2. Custody Handover (derived: +1 day from harvest_date; no separate DB table for handover events)
+    const harvestDateObj = new Date(safeDate(batch.harvest_date));
     harvestDateObj.setDate(harvestDateObj.getDate() + 1);
     const handoverDate = harvestDateObj.toISOString().split('T')[0];
-    
+
     timeline.push({
       id: `hand-${batch.batch_id}`,
       type: 'handover',
       title: 'Custody Handover',
       date: handoverDate,
       from: batch.farmer_name,
-      to: stepsRes.rows.length > 0 ? stepsRes.rows[0].facility_name : 'Rajasthan Herbal Processing Ltd.',
+      to: stepsRes.rows.length > 0 ? stepsRes.rows[0].facility_name : 'Processing Not Started',
+      note: 'Handover date is estimated as harvest date + 1 day.',
       status: 'completed'
     });
 
     // 3. Quality Tests
-    testsRes.rows.forEach((test, idx) => {
+    testsRes.rows.forEach((test) => {
       timeline.push({
         id: `test-${test.id}`,
         type: 'testing',
         title: `Quality Testing - ${test.test_type}`,
-        date: test.test_date.toISOString().split('T')[0],
+        date: safeDate(test.test_date),
         lab: test.lab_name,
+        certificateUrl: test.certificate_url || null,
         results: {
           moisture: test.moisture_content ? `${test.moisture_content}%` : 'N/A',
           pesticide: test.pesticide_result === 'not-detected' ? 'Not Detected' : `Detected (${test.pesticide_level || 'Low'})`,
@@ -406,16 +494,16 @@ app.get('/api/provenance/:batchId', async (req, res) => {
     // 4. Processing Steps
     stepsRes.rows.forEach((step) => {
       const isPackaging = step.step_type.toLowerCase().includes('packaging') || step.step_type.toLowerCase().includes('final');
-      
+
       if (isPackaging) {
-        // 5. Packaging
+        // Packaging step — use end_date as the packaging completion date
         timeline.push({
           id: `pkg-${step.id}`,
           type: 'packaging',
           title: 'Final Packaging',
-          date: step.end_date.toISOString().split('T')[0],
+          date: safeDate(step.end_date),
           manufacturer: step.facility_name,
-          packagingDate: step.end_date.toISOString().split('T')[0],
+          packagingDate: safeDate(step.end_date),
           details: {
             outputWeight: `${step.output_weight || batch.weight} ${step.output_unit || 'kg'}`,
             storageLocation: step.storage_location
@@ -423,16 +511,16 @@ app.get('/api/provenance/:batchId', async (req, res) => {
           status: 'completed'
         });
       } else {
-        // General Processing
+        // General processing step
         timeline.push({
           id: `proc-${step.id}`,
           type: 'processing',
           title: `Processing & Formulation - ${step.step_type}`,
-          date: step.start_date.toISOString().split('T')[0],
+          date: safeDate(step.start_date),
           steps: [
             step.method ? `Method: ${step.method}` : null,
-            step.temperature ? `Temp: ${step.temperature}` : null,
-            step.duration ? `Duration: ${step.duration}` : null
+            step.temperature ? `Temp: ${step.temperature}°C` : null,
+            step.duration ? `Duration: ${step.duration} hrs` : null
           ].filter(Boolean),
           outputWeight: step.output_weight ? `${step.output_weight} ${step.output_unit}` : 'N/A',
           facility: step.facility_name,
@@ -443,7 +531,7 @@ app.get('/api/provenance/:batchId', async (req, res) => {
 
     res.json({
       batchId: batch.batch_id,
-      productName: `${batch.herb_name.split(' ')[0]} Restorative Capsules`,
+      productName: stepsRes.rows.length > 0 ? `${batch.herb_name.split(' ')[0]} Extract` : batch.herb_name,
       status: 'verified',
       timeline
     });
@@ -451,6 +539,18 @@ app.get('/api/provenance/:batchId', async (req, res) => {
     console.error('Error generating provenance:', error);
     res.status(500).json({ message: 'Error retrieving provenance timeline.' });
   }
+});
+
+// QR Signature Payload endpoint
+app.get('/api/provenance/:batchId/qr-payload', async (req, res) => {
+  const { batchId } = req.params;
+  const payload = JSON.stringify({ batchId, timestamp: Date.now() });
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
+  res.json({ 
+    payload, 
+    signature, 
+    verificationUrl: `https://ayurtrace.com/verify?payload=${encodeURIComponent(payload)}&signature=${signature}` 
+  });
 });
 
 // Post consumer feedback for batch
@@ -480,6 +580,43 @@ app.post('/api/provenance/:batchId/feedback', async (req, res) => {
   }
 });
 
+// Get all feedback for a specific batch
+app.get('/api/provenance/:batchId/feedback', async (req, res) => {
+  const { batchId } = req.params;
+  try {
+    const result = await query(
+      'SELECT id, rating, comment, category, created_at FROM feedback WHERE batch_id = $1 ORDER BY created_at DESC',
+      [batchId]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching batch feedback:', error);
+    res.status(500).json({ message: 'Error retrieving feedback.' });
+  }
+});
+
+// Get all feedback for the logged-in farmer's batches
+app.get('/api/farmer/feedback', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'farmer') {
+    return res.status(403).json({ message: 'Only farmers can view their feedback.' });
+  }
+  try {
+    const result = await query(
+      `SELECT f.id, f.batch_id, f.rating, f.comment, f.category, f.created_at, b.herb_name
+       FROM feedback f
+       JOIN batches b ON f.batch_id = b.batch_id
+       WHERE b.farmer_id = $1
+       ORDER BY f.created_at DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching farmer feedback:', error);
+    res.status(500).json({ message: 'Error retrieving farmer feedback.' });
+  }
+});
+
+
 
 // ----------------------------------------
 // Stakeholder Dashboard API
@@ -503,6 +640,15 @@ app.get('/api/stakeholder/metrics', authenticateToken, async (req, res) => {
     // 3. Total Batches
     const batchesRes = await query('SELECT COUNT(*) as count FROM batches');
     const totalBatches = parseInt(batchesRes.rows[0].count);
+
+    // Get Consumer Scans
+    const scansRes = await query('SELECT COUNT(*) as count FROM consumer_scans');
+    const consumerScans = parseInt(scansRes.rows[0].count);
+
+    // Get Carbon Footprint (estimate: 0.05 kg CO₂e per kg of fresh herb — based on average
+    // Ayurvedic herb supply chain transport/storage emission factor; not a certified measurement)
+    const carbonRes = await query('SELECT COALESCE(SUM(weight * 0.05), 0) as carbon FROM batches');
+    const carbonFootprintVal = parseFloat(carbonRes.rows[0].carbon).toFixed(2);
 
     // 4. Pending Quality (batches without tests)
     const pendingRes = await query(
@@ -561,15 +707,6 @@ app.get('/api/stakeholder/metrics', authenticateToken, async (req, res) => {
       });
     });
 
-    if (alerts.length === 0) {
-      alerts.push({
-        id: 'alert-default-1',
-        type: 'success',
-        message: 'All scanned quality tests within compliant margins.',
-        time: '2 hours ago'
-      });
-    }
-
     // 9. Harvest trends (grouped by weekly dates)
     const harvestTrendRes = await query(
       `SELECT TO_CHAR(harvest_date, 'Mon DD') as name, SUM(weight) as value 
@@ -583,23 +720,11 @@ app.get('/api/stakeholder/metrics', authenticateToken, async (req, res) => {
       value: parseFloat(r.value)
     }));
 
-    if (harvestTrend.length === 0) {
-      harvestTrend.push(
-        { name: 'Week 1', value: 400 },
-        { name: 'Week 2', value: 600 },
-        { name: 'Week 3', value: 800 }
-      );
-    }
-
     // 10. Quality Pie Chart distribution
     const qualityData = [
       { name: 'Passed', value: passedTests, fill: '#10b981' },
       { name: 'Failed', value: totalTests - passedTests, fill: '#ef4444' }
     ];
-    if (totalTests === 0) {
-      qualityData[0].value = 100;
-      qualityData[1].value = 0;
-    }
 
     // 11. Farmer Performance lists
     const farmerPerfRes = await query(
@@ -633,11 +758,11 @@ app.get('/api/stakeholder/metrics', authenticateToken, async (req, res) => {
       totalHarvested: `${totalWeight} kg`,
       pendingQuality,
       complianceRate,
-      consumerScans: 100 + totalBatches * 3, // dynamic proxy
+      consumerScans,
       activeFarmers,
       totalBatches,
       avgQualityScore,
-      carbonFootprint: `${(totalWeight * 0.001).toFixed(2)} tons CO₂`, // dummy carbon formula
+      carbonFootprint: `${carbonFootprintVal} tons CO₂`,
       harvestTrend,
       qualityData,
       recentBatches,

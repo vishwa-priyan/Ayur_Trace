@@ -1,3 +1,12 @@
+-- Drop existing tables to ensure clean schema
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS consumer_scans CASCADE;
+DROP TABLE IF EXISTS feedback CASCADE;
+DROP TABLE IF EXISTS processing_steps CASCADE;
+DROP TABLE IF EXISTS quality_tests CASCADE;
+DROP TABLE IF EXISTS batches CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
 -- Create Users Table
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(50) PRIMARY KEY,
@@ -22,6 +31,7 @@ CREATE TABLE IF NOT EXISTS batches (
   address TEXT,
   collector_notes TEXT,
   farmer_id VARCHAR(50) REFERENCES users(id),
+  photo_url VARCHAR(255),
   status VARCHAR(50) NOT NULL DEFAULT 'Collected',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -40,6 +50,7 @@ CREATE TABLE IF NOT EXISTS quality_tests (
   dna_result VARCHAR(255),
   overall_compliance VARCHAR(50) DEFAULT 'Passed',
   notes TEXT,
+  certificate_url VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -70,3 +81,67 @@ CREATE TABLE IF NOT EXISTS feedback (
   category VARCHAR(100),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create Audit Logs Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id SERIAL PRIMARY KEY,
+  table_name VARCHAR(100) NOT NULL,
+  record_id VARCHAR(100) NOT NULL,
+  action VARCHAR(50) NOT NULL,
+  new_data JSONB,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Consumer Scans Table
+CREATE TABLE IF NOT EXISTS consumer_scans (
+  id SERIAL PRIMARY KEY,
+  batch_id VARCHAR(50) REFERENCES batches(batch_id) ON DELETE CASCADE,
+  scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  location VARCHAR(255)
+);
+
+-- Audit Trigger Function
+CREATE OR REPLACE FUNCTION log_audit_event()
+RETURNS TRIGGER AS $$
+DECLARE
+  row_data jsonb;
+  rec_id text;
+BEGIN
+  IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+    row_data := row_to_json(NEW)::jsonb;
+  ELSIF TG_OP = 'DELETE' THEN
+    row_data := row_to_json(OLD)::jsonb;
+  END IF;
+
+  IF TG_TABLE_NAME = 'batches' THEN
+    rec_id := row_data->>'batch_id';
+  ELSE
+    rec_id := row_data->>'id';
+  END IF;
+
+  INSERT INTO audit_logs (table_name, record_id, action, new_data)
+  VALUES (TG_TABLE_NAME, rec_id, TG_OP, row_data);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers for Audit Logs
+DROP TRIGGER IF EXISTS audit_batches_trigger ON batches;
+CREATE TRIGGER audit_batches_trigger
+AFTER INSERT OR UPDATE OR DELETE ON batches
+FOR EACH ROW EXECUTE FUNCTION log_audit_event();
+
+DROP TRIGGER IF EXISTS audit_quality_tests_trigger ON quality_tests;
+CREATE TRIGGER audit_quality_tests_trigger
+AFTER INSERT OR UPDATE OR DELETE ON quality_tests
+FOR EACH ROW EXECUTE FUNCTION log_audit_event();
+
+DROP TRIGGER IF EXISTS audit_processing_steps_trigger ON processing_steps;
+CREATE TRIGGER audit_processing_steps_trigger
+AFTER INSERT OR UPDATE OR DELETE ON processing_steps
+FOR EACH ROW EXECUTE FUNCTION log_audit_event();
