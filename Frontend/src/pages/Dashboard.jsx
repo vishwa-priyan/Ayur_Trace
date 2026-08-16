@@ -188,7 +188,7 @@ const Dashboard = () => {
                   {/* Demo Batch Suggestions */}
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-muted-foreground">Try demo batches:</span>
-                    {['AYR202501001', 'AYR202501002', 'AYR202501003'].map((id) =>
+                    {['AYR202608293538'].map((id) =>
                     <button
                       key={id}
                       onClick={() => setBatchId(id)}
