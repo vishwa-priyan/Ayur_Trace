@@ -13,6 +13,7 @@ import farmerImage from "@/assets/farmer-collection.jpg";
 import QRGenerator from "@/components/QRGenerator";
 import MapDisplay from "@/components/MapDisplay";
 import { useAuth } from "@/contexts/AuthContext";
+import { getApiUrl } from "@/lib/api";
 
 const CollectionEvent = () => {
   const navigate = useNavigate();
@@ -86,7 +87,7 @@ const CollectionEvent = () => {
       const token = localStorage.getItem("ayurtrace_token");
       if (!token) return;
       try {
-        const response = await fetch("/api/batches", {
+        const response = await fetch(getApiUrl("/api/batches"), {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -110,7 +111,7 @@ const CollectionEvent = () => {
       const token = localStorage.getItem("ayurtrace_token");
       if (!token) return;
       try {
-        const response = await fetch("/api/farmer/feedback", {
+        const response = await fetch(getApiUrl("/api/farmer/feedback"), {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -171,7 +172,7 @@ const CollectionEvent = () => {
     else if (formData.moistureLevel === 'wet') numericMoisture = 14.5;
 
     try {
-      const response = await fetch("/api/batches", {
+      const response = await fetch(getApiUrl("/api/batches"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -226,7 +227,7 @@ const CollectionEvent = () => {
     uploadData.append("file", file);
 
     try {
-      const response = await fetch("/api/upload", {
+      const response = await fetch(getApiUrl("/api/upload"), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`

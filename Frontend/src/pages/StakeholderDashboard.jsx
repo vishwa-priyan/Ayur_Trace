@@ -17,6 +17,7 @@ import {
   Target, Globe, Bell, ArrowLeft } from
 "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { getApiUrl } from "@/lib/api";
 
 const StakeholderDashboard = () => {
   const navigate = useNavigate();
@@ -65,7 +66,7 @@ const StakeholderDashboard = () => {
     const token = localStorage.getItem("ayurtrace_token");
     if (!token) return;
     try {
-      const response = await fetch("/api/stakeholder/metrics", {
+      const response = await fetch(getApiUrl("/api/stakeholder/metrics"), {
         headers: {
           "Authorization": `Bearer ${token}`
         }

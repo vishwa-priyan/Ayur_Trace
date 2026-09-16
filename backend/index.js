@@ -26,13 +26,16 @@ function safeDate(val) {
 }
 
 // Middleware
-app.use(cors());
+const corsOrigin = process.env.CORS_ORIGIN 
+  ? (process.env.CORS_ORIGIN.includes(',') ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : process.env.CORS_ORIGIN)
+  : '*';
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
 // Setup Multer for local uploads
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -45,7 +48,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Serve uploads directory
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(uploadDir));
 
 // Token Authentication Middleware
 function authenticateToken(req, res, next) {
@@ -778,8 +781,22 @@ app.get('/api/stakeholder/metrics', authenticateToken, async (req, res) => {
 
 
 // ----------------------------------------
+// Production Static Frontend Serving (Optional)
+// ----------------------------------------
+const frontendDist = path.join(__dirname, '../frontend/dist');
+if (process.env.SERVE_FRONTEND === 'true' || (process.env.NODE_ENV === 'production' && fs.existsSync(frontendDist))) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    }
+  });
+}
+
+// ----------------------------------------
 // Start Web Server
 // ----------------------------------------
-app.listen(PORT, () => {
-  console.log(`AyurTrace backend listening on port ${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`AyurTrace backend listening on http://${HOST}:${PORT}`);
 });

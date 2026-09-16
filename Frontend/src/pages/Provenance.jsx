@@ -10,6 +10,7 @@ import { CheckCircle, MapPin, FlaskConical, Factory, Package, User, Calendar, Le
 import { Separator } from "@/components/ui/separator";
 import MapDisplay from "@/components/MapDisplay";
 import fallbackHerbPhoto from "@/assets/herb_photo.jpeg";
+import { getApiUrl, getAssetUrl } from "@/lib/api";
 
 const Provenance = () => {
   const { batchId } = useParams();
@@ -27,7 +28,7 @@ const Provenance = () => {
 
   const fetchFeedbacks = async () => {
     try {
-      const response = await fetch(`/api/provenance/${batchId}/feedback`);
+      const response = await fetch(getApiUrl(`/api/provenance/${batchId}/feedback`));
       if (response.ok) {
         const data = await response.json();
         setFeedbacks(data);
@@ -40,7 +41,7 @@ const Provenance = () => {
   useEffect(() => {
     const fetchProvenance = async () => {
       try {
-        const response = await fetch(`/api/provenance/${batchId}`);
+        const response = await fetch(getApiUrl(`/api/provenance/${batchId}`));
         if (!response.ok) {
           throw new Error("Failed to load provenance timeline for batch " + batchId);
         }
@@ -73,7 +74,7 @@ const Provenance = () => {
     }
 
     try {
-      const response = await fetch(`/api/provenance/${batchId}/feedback`, {
+      const response = await fetch(getApiUrl(`/api/provenance/${batchId}/feedback`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -236,7 +237,7 @@ const Provenance = () => {
                                   Geotagged Collection Photo
                                 </h4>
                                 <img
-                              src={step.details?.photoUrl ? step.details.photoUrl : fallbackHerbPhoto}
+                              src={step.details?.photoUrl ? getAssetUrl(step.details.photoUrl) : fallbackHerbPhoto}
                               alt="Collection site"
                               className="w-full h-48 object-cover rounded-lg border" />
                             

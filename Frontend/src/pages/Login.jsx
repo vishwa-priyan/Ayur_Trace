@@ -9,6 +9,7 @@ import { toast } from "@/hooks/use-toast";
 import { Leaf, FlaskConical, BarChart3 } from "lucide-react";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { getApiUrl } from "@/lib/api";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -46,7 +47,7 @@ const Login = () => {
         ? { id: formData.id, password: formData.password, userType }
         : { id: formData.id, name: formData.name, email: formData.email, password: formData.password, userType };
 
-      const response = await fetch(endpoint, {
+      const response = await fetch(getApiUrl(endpoint), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

@@ -13,6 +13,7 @@ import { toast } from "@/hooks/use-toast";
 import { ArrowLeft, FlaskConical, Search, QrCode, Upload, CheckCircle, AlertTriangle } from "lucide-react";
 import labImage from "@/assets/lab-testing.jpg";
 import { useAuth } from "@/contexts/AuthContext";
+import { getApiUrl } from "@/lib/api";
 import { Html5QrcodeScanner } from "html5-qrcode/esm/html5-qrcode-scanner";
 
 /**
@@ -122,7 +123,7 @@ const QualityTest = () => {
     }
 
     try {
-      const response = await fetch(`/api/batches/${batchId.trim()}`, {
+      const response = await fetch(getApiUrl(`/api/batches/${batchId.trim()}`), {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -150,7 +151,7 @@ const QualityTest = () => {
       });
 
       // Fetch provenance timeline for this batch to populate history and lab stats
-      const provRes = await fetch(`/api/provenance/${batchId.trim()}`);
+      const provRes = await fetch(getApiUrl(`/api/provenance/${batchId.trim()}`));
       if (provRes.ok) {
         const provData = await provRes.json();
         setBatchHistory(provData.timeline.map((step, idx) => ({
@@ -207,7 +208,7 @@ const QualityTest = () => {
     uploadData.append("file", file);
 
     try {
-      const response = await fetch("/api/upload", {
+      const response = await fetch(getApiUrl("/api/upload"), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`
@@ -299,7 +300,7 @@ const QualityTest = () => {
     if (!token) return;
 
     try {
-      const response = await fetch(`/api/batches/${batchData.id}/quality-test`, {
+      const response = await fetch(getApiUrl(`/api/batches/${batchData.id}/quality-test`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -357,7 +358,7 @@ const QualityTest = () => {
     if (!token) return;
 
     try {
-      const response = await fetch(`/api/batches/${batchData.id}/processing`, {
+      const response = await fetch(getApiUrl(`/api/batches/${batchData.id}/processing`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
