@@ -78,7 +78,7 @@ stateDiagram-v2
 ### Database Layer (PostgreSQL)
 *   **Relational Schema**: Handled via SQL scripts in [`backend/schema.sql`](file:///d:/Tech/Ayur_Trace/backend/schema.sql)
 *   **Audit Engine**: Database-level PL/pgSQL database trigger (`log_audit_event()`) that runs automatically on insert, update, or delete operations to record every history change in the `audit_logs` table
-*   **Seed Utility**: Custom [`backend/migrate.js`](file:///d:/Tech/Ayur_Trace/backend/migrate.js) to automate table drops, structural creations, and seed accounts
+*   **Seed Utility**: Custom [`backend/migrate.js`](file:///d:/Tech/Ayur_Trace/backend/migrate.js) to initialize the schema and seed accounts without removing existing data
 
 ---
 
@@ -236,6 +236,28 @@ cd Ayur_Trace
     npm run dev
     ```
     *The web application will launch at `http://localhost:8080`. Vite is pre-configured in [`frontend/vite.config.js`](file:///d:/Tech/Ayur_Trace/frontend/vite.config.js) to proxy `/api/*` endpoints to the Express API running on port `5000`.*
+
+### Docker Compose
+
+Docker Compose runs the production Vite build, Express API, and PostgreSQL database together. The API container serves the frontend on port `5000`, so only one application URL is needed.
+
+1. Create a `.env` file in the repository root with a strong JWT secret:
+   ```env
+   JWT_SECRET=replace_with_a_long_random_secret
+   POSTGRES_PASSWORD=replace_with_a_database_password
+   ```
+2. Build and start the services:
+   ```bash
+   docker compose up --build
+   ```
+3. Open `http://localhost:5000`. PostgreSQL data and uploaded files are stored in named Docker volumes.
+
+The migration runs when the API container starts and is safe to run against an existing database. To stop the services without deleting data:
+```bash
+docker compose down
+```
+
+To remove the database and uploaded files as well, use `docker compose down -v`.
 
 ---
 

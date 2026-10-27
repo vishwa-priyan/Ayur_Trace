@@ -1,12 +1,3 @@
--- Drop existing tables to ensure clean schema
-DROP TABLE IF EXISTS audit_logs CASCADE;
-DROP TABLE IF EXISTS consumer_scans CASCADE;
-DROP TABLE IF EXISTS feedback CASCADE;
-DROP TABLE IF EXISTS processing_steps CASCADE;
-DROP TABLE IF EXISTS quality_tests CASCADE;
-DROP TABLE IF EXISTS batches CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-
 -- Create Users Table
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(50) PRIMARY KEY,

@@ -50,6 +50,10 @@ const upload = multer({ storage: storage });
 // Serve uploads directory
 app.use('/uploads', express.static(uploadDir));
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 // Token Authentication Middleware
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
